@@ -1,77 +1,93 @@
 # KotobaFlow 言葉フロー
 
-> Multimodal AI system for learning Japanese through video — powered by Docker.
+> Multimodal AI system for learning Japanese through video — powered by Docker, Next.js, and Faster-Whisper.
 
 ## Architecture
 
-```
-┌─────────────────┐     ┌──────────────────┐     ┌────────────────┐
-│  web-frontend   │────▶│ inference-worker │────▶│ nlp-processor  │
-│  (Next.js)      │     │ (Faster-Whisper) │     │ (SudachiPy)    │
-│  Port: 3000     │     │ Port: 8001       │     │ Port: 8002     │
-└────────┬────────┘     └──────────────────┘     └───────┬────────┘
-         │                                               │
-         │              ┌──────────────────┐             │
-         └─────────────▶│  media-handler   │             │
-                        │  (yt-dlp+FFmpeg) │     ┌───────┴────────┐
-                        │  Port: 8003      │     │  jmdict.db     │
-                        └──────────────────┘     │  (SQLite)      │
-                                                 └────────────────┘
+```text
+┌────────────────────────────────────────────────────────┐
+│                      Client/Browser                    │
+│ ┌─────────────────┐ ┌────────────────────────────────┐ │
+│ │  web-frontend   │ │      Client-side Engine        │ │
+│ │  (Next.js)      │ │ - JMDict IndexedDB             │ │
+│ │  Port: 3000     │ │ - Rule-based De-inflection     │ │
+│ └────────┬────────┘ └────────────────────────────────┘ │
+└──────────│─────────────────────────────────────────────┘
+           │
+           ▼
+┌────────────────────────────────────────────────────────┐
+│  api-gateway (NGINX Reverse Proxy - Port: 8000)        │
+└────┬────────────────────────┬─────────────────────┬────┘
+     │                        │                     │
+     ▼                        ▼                     ▼
+┌──────────────────┐  ┌────────────────┐  ┌──────────────────┐
+│ inference-worker │  │ nlp-processor  │  │  media-handler   │
+│ (Faster-Whisper) │  │ (SudachiPy)    │  │  (yt-dlp+FFmpeg) │
+│ Port: 8001       │  │ Port: 8002     │  │  Port: 8003      │
+└──────────────────┘  └───────┬────────┘  └──────────────────┘
+                              │
+                      ┌───────┴────────┐
+                      │  jmdict.db     │
+                      │  (SQLite)      │
+                      └────────────────┘
 ```
 
 ## Quick Start
 
+### 1. Clone and Setup
 ```bash
-# 1. Clone and setup
 git clone https://github.com/your-user/KotobaFlow.git
 cd KotobaFlow
 
-# 2. Configure environment
+# Configure environment
 cp .env.example .env
-
-# 3. Run initial setup (downloads JMDict database)
-chmod +x scripts/setup.sh
-./scripts/setup.sh
-
-# 4. Build and start all services
-docker-compose up --build
 ```
 
-Open http://localhost:3000 to access the web interface.
+### 2. Build and Run (CPU Mode)
+By default, the application runs on CPU. This is suitable if you don't have an NVIDIA GPU.
+
+```bash
+docker compose up -d --build
+```
+
+### 3. Build and Run (GPU Mode - Recommended)
+If you have an NVIDIA GPU and `nvidia-container-toolkit` installed, you can leverage hardware acceleration for Faster-Whisper to transcribe videos up to 10x faster.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+### 4. Access the Application
+- **Web App:** Open `http://localhost:3000` in your browser.
+- **API Gateway:** `http://localhost:8000` (Routes all API calls to the backend).
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `web-frontend` | 3000 | Next.js web application |
+| `web-frontend` | 3000 | Next.js web application (React, Tailwind CSS, IndexedDB) |
+| `api-gateway` | 8000 | NGINX API Gateway routing `/api/` traffic to internal services |
 | `inference-worker` | 8001 | Faster-Whisper STT (Speech-to-Text) |
-| `nlp-processor` | 8002 | SudachiPy tokenizer + JMDict dictionary |
+| `nlp-processor` | 8002 | SudachiPy tokenizer + JMDict backend dictionary |
 | `media-handler` | 8003 | yt-dlp + FFmpeg audio extraction |
-
-## Resource Requirements
-
-- **RAM:** ~2GB (Whisper Medium INT8 uses ~1.5GB)
-- **CPU:** 4+ cores recommended
-- **Disk:** ~3GB (models + dictionary + cache)
-- **Swap:** 2GB recommended on hosts with exactly 2GB RAM
 
 ## Development
 
-```bash
-# Start individual services for development
-docker-compose up media-handler nlp-processor
+If you want to run the Next.js frontend locally outside of Docker for development:
 
-# Run a service locally (outside Docker)
-cd services/nlp-processor
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8002
+```bash
+cd services/web-frontend
+npm install
+npm run dev
 ```
 
 ## Tech Stack
 
-- **Frontend:** Next.js 14 / React 18 / TypeScript
-- **STT Engine:** Faster-Whisper (CTranslate2)
-- **NLP:** SudachiPy + JMDict SQLite
+- **Frontend:** Next.js 14 / React 18 / TypeScript / Tailwind CSS
+- **Local Database:** IndexedDB (idb) for sub-millisecond dictionary lookups
+- **API Gateway:** NGINX
+- **STT Engine:** Faster-Whisper (CTranslate2) with GPU acceleration
+- **NLP:** SudachiPy + SQLite
 - **Media:** yt-dlp + FFmpeg
 - **Orchestration:** Docker Compose
 
