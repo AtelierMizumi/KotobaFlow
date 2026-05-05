@@ -1,0 +1,5 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+sudachipy==0.6.8
+sudachidict-small==20240409
+httpx==0.27.0
