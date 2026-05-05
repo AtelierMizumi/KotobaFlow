@@ -24,8 +24,31 @@ services:
     deploy:
       resources:
         limits:
-          memory: 150M
-          cpus: '0.5'
+          memory: 256M
+          cpus: '1.0'
+    networks:
+      - kotobaflow-net
+    restart: unless-stopped
+
+  # ===========================================================================
+  # API Gateway — Nginx reverse proxy (unified API for all clients)
+  # Provides a single endpoint for web, browser extension, mobile, etc.
+  # ===========================================================================
+  api-gateway:
+    image: nginx:alpine
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/api-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - inference-worker
+      - nlp-processor
+      - media-handler
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.25'
     networks:
       - kotobaflow-net
     restart: unless-stopped
@@ -45,9 +68,9 @@ services:
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
       - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-ja}
       - WHISPER_BEAM_SIZE=${WHISPER_BEAM_SIZE:-5}
-      - WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-2}
+      - WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-4}
       - WHISPER_NUM_WORKERS=${WHISPER_NUM_WORKERS:-1}
-      - OMP_NUM_THREADS=${WHISPER_CPU_THREADS:-2}
+      - OMP_NUM_THREADS=${WHISPER_CPU_THREADS:-4}
       - MEDIA_SERVICE_URL=http://media-handler:8003
       - NLP_SERVICE_URL=http://nlp-processor:8002
     volumes:
@@ -56,14 +79,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1500M
-          cpus: '2.0'
+          memory: 2048M
+          cpus: '4.0'
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 120s
     networks:
       - kotobaflow-net
     restart: unless-stopped
@@ -85,8 +108,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 200M
-          cpus: '0.5'
+          memory: 256M
+          cpus: '1.0'
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
       interval: 15s
@@ -115,7 +138,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 100M
+          memory: 256M
           cpus: '1.0'
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]

@@ -1,0 +1,29 @@
+# =============================================================================
+# KotobaFlow — GPU Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+# 
+# Requires:
+#   - NVIDIA GPU driver installed on host
+#   - nvidia-container-toolkit installed
+#   - Run: sudo nvidia-ctk runtime configure --runtime=docker
+# =============================================================================
+
+version: '3.8'
+
+services:
+  inference-worker:
+    build:
+      context: ./services/inference-worker
+      dockerfile: Dockerfile.gpu
+    environment:
+      - WHISPER_DEVICE=cuda
+      - WHISPER_COMPUTE_TYPE=float16
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

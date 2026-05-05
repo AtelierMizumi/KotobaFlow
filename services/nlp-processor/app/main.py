@@ -162,3 +162,101 @@ async def lookup_word(word: str):
         response["dictionary"] = dict_entry
 
     return response
+
+
+@app.get("/api/jmdict-export")
+async def export_jmdict():
+    """
+    Export the entire JMDict database as JSON for client-side IndexedDB.
+
+    The frontend calls this ONCE on first load, stores in IndexedDB,
+    and then all subsequent dictionary lookups are instant and offline
+    (10ten Japanese Reader architecture).
+
+    Returns:
+        { "entries": [...], "count": N, "version": "..." }
+    """
+    if not dictionary or not dictionary.available:
+        raise HTTPException(
+            status_code=503,
+            detail="Dictionary not available. Run scripts/setup.sh first."
+        )
+
+    import sqlite3
+    import json
+    from fastapi.responses import StreamingResponse
+
+    db_path = str(dictionary.db_path)
+
+    def generate():
+        """Stream JSON entries to avoid loading everything into RAM."""
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+
+        yield '{"entries":['
+
+        cursor = conn.execute(
+            """
+            SELECT kanji_element, reading_element, base_form,
+                   sense_glosses_en, pos_tags, jlpt_level, is_common
+            FROM entries
+            ORDER BY rowid
+            """
+        )
+
+        first = True
+        for row in cursor:
+            kanji = row["kanji_element"] or ""
+            readings_raw = row["reading_element"] or ""
+            glosses = row["sense_glosses_en"] or ""
+            pos = row["pos_tags"] or ""
+
+            # Try to get Vietnamese meanings
+            vi_cursor = conn.execute(
+                "SELECT meaning FROM meanings_vi WHERE word = ? OR base_form = ? LIMIT 5",
+                (kanji or readings_raw.split(";")[0], row["base_form"] or ""),
+            ) if _vi_table_exists(conn) else None
+            vi_meanings = [r[0] for r in vi_cursor] if vi_cursor else []
+
+            entry = {
+                "kanji": [k.strip() for k in kanji.split(";") if k.strip()] if kanji else [],
+                "readings": [r.strip() for r in readings_raw.split(";") if r.strip()],
+                "base_form": row["base_form"] or readings_raw.split(";")[0],
+                "meanings_en": [m.strip() for m in glosses.split(";") if m.strip()][:6],
+                "meanings_vi": vi_meanings,
+                "pos_tags": [p.strip() for p in pos.split(";") if p.strip()],
+                "jlpt_level": row["jlpt_level"],
+                "common": bool(row["is_common"]),
+            }
+
+            if not first:
+                yield ","
+            yield json.dumps(entry, ensure_ascii=False)
+            first = False
+
+        # Get count
+        count_row = conn.execute("SELECT COUNT(*) FROM entries").fetchone()
+        count = count_row[0] if count_row else 0
+        conn.close()
+
+        yield f'],"count":{count}}}'
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/json",
+        headers={
+            "Cache-Control": "public, max-age=86400",  # Cache 24h
+            "Content-Disposition": "inline",
+        },
+    )
+
+
+def _vi_table_exists(conn: "sqlite3.Connection") -> bool:
+    """Check if the Vietnamese meanings table exists."""
+    try:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='meanings_vi'"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False

@@ -1,6 +1,7 @@
 """
 KotobaFlow — Dictionary Lookup
 SQLite-based JMDict dictionary for Japanese word lookups.
+Supports English and Vietnamese meanings.
 """
 
 import logging
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 class DictionaryLookup:
     """
     Japanese dictionary backed by JMDict SQLite database.
+    Supports English (JMDict) and Vietnamese (JMDict-Vi community data).
     Falls back gracefully if the database is not available.
     """
 
@@ -27,6 +29,7 @@ class DictionaryLookup:
                 self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
                 self._conn.row_factory = sqlite3.Row
                 self.available = True
+                self._check_vietnamese_support()
                 logger.info(f"JMDict database loaded: {self.db_path}")
             except Exception as e:
                 logger.warning(f"Failed to open JMDict database: {e}")
@@ -37,16 +40,42 @@ class DictionaryLookup:
                 "Run scripts/setup.sh to download and build the database."
             )
 
-    def lookup(self, word: str) -> Optional[dict]:
+        self.has_vietnamese = False
+
+    def _check_vietnamese_support(self):
+        """Check if the Vietnamese meanings table exists."""
+        if not self._conn:
+            return
+        try:
+            cursor = self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='meanings_vi'"
+            )
+            self.has_vietnamese = cursor.fetchone() is not None
+            if self.has_vietnamese:
+                logger.info("Vietnamese dictionary support: enabled")
+            else:
+                logger.info(
+                    "Vietnamese dictionary support: disabled "
+                    "(run scripts/build_vi_dict.py to add Vietnamese meanings)"
+                )
+        except Exception:
+            self.has_vietnamese = False
+
+    def lookup(self, word: str, lang: str = "all") -> Optional[dict]:
         """
         Look up a word in the dictionary.
         Searches by exact match on kanji or reading.
+        
+        Args:
+            word: Japanese word to look up
+            lang: "en", "vi", or "all" (default)
         
         Returns:
             {
                 "word": "天気",
                 "readings": ["てんき"],
                 "meanings_en": ["weather", "the elements", ...],
+                "meanings_vi": ["thời tiết", ...],
                 "pos_tags": ["noun"],
                 "jlpt_level": "N5",
                 "common": True
@@ -60,6 +89,14 @@ class DictionaryLookup:
             result = self._query_by_kanji(word)
             if not result:
                 result = self._query_by_reading(word)
+
+            # Add Vietnamese meanings if available
+            if result and lang in ("vi", "all") and self.has_vietnamese:
+                vi_meanings = self._query_vietnamese(word)
+                result["meanings_vi"] = vi_meanings
+            elif result:
+                result["meanings_vi"] = []
+
             return result
         except Exception as e:
             logger.error(f"Dictionary lookup error for '{word}': {e}")
@@ -101,6 +138,25 @@ class DictionaryLookup:
         row = cursor.fetchone()
         return self._row_to_dict(row) if row else None
 
+    def _query_vietnamese(self, word: str) -> list[str]:
+        """Query Vietnamese meanings from the meanings_vi table."""
+        if not self._conn:
+            return []
+
+        try:
+            cursor = self._conn.execute(
+                """
+                SELECT meaning FROM meanings_vi
+                WHERE word = ? OR base_form = ?
+                """,
+                (word, word),
+            )
+            rows = cursor.fetchall()
+            return [row["meaning"] for row in rows if row["meaning"]]
+        except Exception as e:
+            logger.warning(f"Vietnamese lookup error for '{word}': {e}")
+            return []
+
     def _row_to_dict(self, row: sqlite3.Row) -> dict:
         """Convert a database row to a dictionary result."""
         glosses = row["sense_glosses_en"] or ""
@@ -110,6 +166,7 @@ class DictionaryLookup:
             "word": row["kanji_element"] or row["reading_element"],
             "readings": [r.strip() for r in (row["reading_element"] or "").split(";") if r.strip()],
             "meanings_en": [m.strip() for m in glosses.split(";") if m.strip()],
+            "meanings_vi": [],  # Populated by lookup() if available
             "pos_tags": [p.strip() for p in pos.split(";") if p.strip()],
             "jlpt_level": row["jlpt_level"],
             "common": bool(row["is_common"]),
