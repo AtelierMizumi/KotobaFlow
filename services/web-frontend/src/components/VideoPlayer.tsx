@@ -1,5 +1,7 @@
 "use client";
-import { useRef, forwardRef, useImperativeHandle } from "react";
+import { useRef, forwardRef, useImperativeHandle, useState } from "react";
+import ReactPlayerType from "react-player";
+const ReactPlayer = ReactPlayerType as any;
 
 interface VideoPlayerProps {
   videoUrl?: string;
@@ -8,22 +10,32 @@ interface VideoPlayerProps {
 
 export interface VideoPlayerHandle {
   seekTo: (time: number) => void;
+  getCurrentTime: () => number;
   element: HTMLVideoElement | null;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   ({ videoUrl, jobId }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const playerRef = useRef<any>(null);
+    const [playing, setPlaying] = useState(false);
 
     useImperativeHandle(ref, () => ({
       seekTo: (time: number) => {
-        if (videoRef.current) {
+        if (playerRef.current) {
+          playerRef.current.seekTo(time, "seconds");
+        } else if (videoRef.current) {
           videoRef.current.currentTime = time;
-          videoRef.current.play();
+          videoRef.current.play().catch(() => {});
         }
       },
+      getCurrentTime: () => {
+        if (playerRef.current) return playerRef.current.getCurrentTime() || 0;
+        if (videoRef.current) return videoRef.current.currentTime || 0;
+        return 0;
+      },
       get element() {
-        return videoRef.current;
+        return videoRef.current || (playerRef.current?.getInternalPlayer() as HTMLVideoElement) || null;
       },
     }));
 
@@ -46,12 +58,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }}
       >
         {videoUrl ? (
-          <video
-            ref={videoRef}
-            id="main-video"
-            src={src}
+          <ReactPlayer
+            ref={playerRef}
+            url={src}
             controls
-            style={{ width: "100%", height: "100%", display: "block" }}
+            width="100%"
+            height="100%"
+            playing={playing}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
           />
         ) : (
           /* Audio-only mode: waveform placeholder */

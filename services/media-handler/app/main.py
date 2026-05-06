@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -38,13 +37,6 @@ app = FastAPI(
     version="0.1.0",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 extractor = MediaExtractor(
     cache_dir=MEDIA_CACHE_DIR,
@@ -81,6 +73,7 @@ async def process_extraction(job_id: str, url: str):
         logger.info(f"[{job_id}] Starting extraction: {url}")
 
         metadata = await extractor.extract_metadata(url)
+        metadata["original_url"] = url
         jobs[job_id]["metadata"] = metadata
 
         # Check duration limit

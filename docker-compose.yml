@@ -104,7 +104,7 @@ services:
       - SUDACHI_DICT_TYPE=${SUDACHI_DICT_TYPE:-small}
       - JMDICT_DB_PATH=/app/data/jmdict.db
     volumes:
-      - jmdict-data:/app/data:ro
+      - ./data:/app/data:ro
     deploy:
       resources:
         limits:
@@ -155,8 +155,6 @@ services:
 # =============================================================================
 volumes:
   whisper-models:
-    driver: local
-  jmdict-data:
     driver: local
   media-cache:
     driver: local

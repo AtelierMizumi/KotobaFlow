@@ -3,8 +3,9 @@
 // All communication with the backend (via API Gateway at :8000)
 // =============================================================================
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8001";
+// API_BASE is empty to use relative paths, triggering Next.js rewrites
+const API_BASE = "";
+const WS_BASE = typeof window !== "undefined" ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}` : "";
 
 // ---------------------------------------------------------------------------
 // Media Handler

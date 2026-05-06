@@ -77,6 +77,7 @@ export interface VideoMetadata {
   upload_date?: string;
   description?: string;
   source: "youtube" | "upload";
+  original_url?: string;
 }
 
 /** WebSocket message from inference-worker */

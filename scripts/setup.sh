@@ -38,30 +38,39 @@ else
     echo "  → Downloading JMDict simplified JSON..."
     
     # Download jmdict-simplified (community-maintained, pre-processed)
-    JMDICT_URL="https://github.com/scriptin/jmdict-simplified/releases/latest/download/jmdict-eng-3.5.0.json.gz"
-    JMDICT_JSON="$DATA_DIR/jmdict-eng.json"
+    # Get the latest release zip URL
+    JMDICT_URL=$(curl -s https://api.github.com/repos/scriptin/jmdict-simplified/releases/latest | grep browser_download_url | grep 'jmdict-eng-.*\.json\.zip' | head -n 1 | cut -d '"' -f 4)
+    JMDICT_ZIP="$DATA_DIR/jmdict-eng.json.zip"
+    JMDICT_JSON="$DATA_DIR/jmdict-eng-*.json"
     
-    if command -v curl &> /dev/null; then
-        curl -L -o "$DATA_DIR/jmdict-eng.json.gz" "$JMDICT_URL" 2>/dev/null || {
-            echo "  ⚠ Failed to download JMDict. You can set it up manually later."
-            echo "    The NLP processor will work without it (no dictionary lookups)."
-        }
-    elif command -v wget &> /dev/null; then
-        wget -q -O "$DATA_DIR/jmdict-eng.json.gz" "$JMDICT_URL" || {
-            echo "  ⚠ Failed to download JMDict."
-        }
-    fi
-    
-    if [ -f "$DATA_DIR/jmdict-eng.json.gz" ]; then
-        echo "  → Decompressing..."
-        gunzip -f "$DATA_DIR/jmdict-eng.json.gz"
+    if [ -n "$JMDICT_URL" ]; then
+        if command -v curl &> /dev/null; then
+            curl -L -o "$JMDICT_ZIP" "$JMDICT_URL" 2>/dev/null || echo "  ⚠ Failed to download JMDict."
+        elif command -v wget &> /dev/null; then
+            wget -q -O "$JMDICT_ZIP" "$JMDICT_URL" || echo "  ⚠ Failed to download JMDict."
+        fi
         
-        echo "  → Building SQLite database..."
-        python3 "$SCRIPT_DIR/build_jmdict_db.py" "$JMDICT_JSON" "$JMDICT_DB"
-        
-        # Cleanup
-        rm -f "$JMDICT_JSON"
-        echo "  ✓ JMDict database ready: $JMDICT_DB"
+        if [ -f "$JMDICT_ZIP" ]; then
+            echo "  → Decompressing..."
+            unzip -o "$JMDICT_ZIP" -d "$DATA_DIR" >/dev/null
+            
+            # Find the extracted JSON file
+            ACTUAL_JSON=$(ls $DATA_DIR/jmdict-eng-*.json | head -n 1)
+            
+            if [ -n "$ACTUAL_JSON" ]; then
+                echo "  → Building SQLite database..."
+                python3 "$SCRIPT_DIR/build_jmdict_db.py" "$ACTUAL_JSON" "$JMDICT_DB"
+                
+                # Run the Vietnamese dictionary builder
+                python3 "$SCRIPT_DIR/build_vi_dict.py" "$JMDICT_DB"
+                
+                # Cleanup
+                rm -f "$ACTUAL_JSON" "$JMDICT_ZIP"
+                echo "  ✓ JMDict database ready: $JMDICT_DB"
+            fi
+        fi
+    else
+        echo "  ⚠ Could not find JMDict release URL."
     fi
 fi
 

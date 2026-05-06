@@ -90,9 +90,18 @@ class DictionaryLookup:
             if not result:
                 result = self._query_by_reading(word)
 
+            # De-inflection Fallbacks (if word ends with common inflections)
+            if not result:
+                result = self._try_deinflections(word)
+
             # Add Vietnamese meanings if available
             if result and lang in ("vi", "all") and self.has_vietnamese:
-                vi_meanings = self._query_vietnamese(word)
+                # Use the matched dictionary word instead of the inflected input
+                dict_word = result["word"]
+                vi_meanings = self._query_vietnamese(dict_word)
+                if not vi_meanings:
+                    # Fallback to the original search word just in case
+                    vi_meanings = self._query_vietnamese(word)
                 result["meanings_vi"] = vi_meanings
             elif result:
                 result["meanings_vi"] = []
@@ -101,6 +110,42 @@ class DictionaryLookup:
         except Exception as e:
             logger.error(f"Dictionary lookup error for '{word}': {e}")
             return None
+
+    def _try_deinflections(self, word: str) -> Optional[dict]:
+        """Try common Japanese de-inflections to find the dictionary form."""
+        if len(word) < 2:
+            return None
+            
+        # Common suffixes to strip and their replacement to dictionary form
+        # This is a basic 10ten-style fallback
+        rules = [
+            ("ます", "る"), ("ません", "る"), ("ました", "る"), 
+            ("ない", "る"), ("なかった", "る"), ("れる", "る"), 
+            ("られる", "る"), ("させる", "る"), ("させられる", "る"),
+            ("たい", "る"), ("た", "る"), ("て", "る"),
+            ("く", "い"), ("かっ", "い"), ("かった", "い"),
+            ("な", "だ"), ("に", "だ"), ("で", "だ")
+        ]
+        
+        for suffix, replacement in rules:
+            if word.endswith(suffix):
+                stem = word[:-len(suffix)]
+                # Try replacing suffix with 'ru' or 'i' etc.
+                candidate = stem + replacement
+                res = self._query_by_kanji(candidate)
+                if not res:
+                    res = self._query_by_reading(candidate)
+                if res:
+                    return res
+                    
+                # Try just the stem for suru verbs (e.g. 勉強します -> 勉強)
+                res = self._query_by_kanji(stem)
+                if not res:
+                    res = self._query_by_reading(stem)
+                if res:
+                    return res
+                    
+        return None
 
     def _query_by_kanji(self, kanji: str) -> Optional[dict]:
         """Query by kanji element."""

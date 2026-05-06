@@ -19,9 +19,7 @@ export default function StudyPage({ params }: { params: Promise<{ jobId: string 
   const [metadata, setMetadata] = useState<VideoMetadata | null>(null);
 
   const { segments, status, statusMessage, start } = useTranscribe();
-  const { activeIndex, seekTo } = useVideoSync(segments, {
-    current: videoRef.current?.element ?? null,
-  } as React.RefObject<HTMLVideoElement | null>);
+  const { activeIndex, seekTo } = useVideoSync(segments, videoRef);
 
   // Load metadata and start transcription on mount
   useEffect(() => {
@@ -84,7 +82,11 @@ export default function StudyPage({ params }: { params: Promise<{ jobId: string 
 
           {/* Video player */}
           <div style={{ padding: "0 12px", flexShrink: 0 }}>
-            <VideoPlayer ref={videoRef} jobId={jobId} />
+            <VideoPlayer
+              ref={videoRef}
+              jobId={jobId}
+              videoUrl={metadata?.source === "youtube" ? metadata.original_url : undefined}
+            />
           </div>
 
           {/* Karaoke subtitle */}

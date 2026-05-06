@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useRef, RefObject } from "react";
 import type { Segment } from "@/lib/types";
+import type { VideoPlayerHandle } from "@/components/VideoPlayer";
 
 /** Binary search to find active segment index at a given timestamp. */
 function findActiveSegment(segments: Segment[], time: number): number {
@@ -21,7 +22,7 @@ function findActiveSegment(segments: Segment[], time: number): number {
  */
 export function useVideoSync(
   segments: Segment[],
-  videoRef: RefObject<HTMLVideoElement | null>
+  videoRef: RefObject<VideoPlayerHandle | null>
 ) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const rafRef = useRef<number>(0);
@@ -30,9 +31,10 @@ export function useVideoSync(
     if (!segments.length) return;
 
     const tick = () => {
-      const video = videoRef.current;
-      if (video) {
-        const idx = findActiveSegment(segments, video.currentTime);
+      const player = videoRef.current;
+      if (player) {
+        const time = player.getCurrentTime();
+        const idx = findActiveSegment(segments, time);
         setActiveIndex((prev) => (prev !== idx ? idx : prev));
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -44,8 +46,7 @@ export function useVideoSync(
 
   const seekTo = (timestamp: number) => {
     if (videoRef.current) {
-      videoRef.current.currentTime = timestamp;
-      videoRef.current.play();
+      videoRef.current.seekTo(timestamp);
     }
   };
 

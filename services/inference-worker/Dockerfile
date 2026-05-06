@@ -16,6 +16,7 @@ RUN groupadd --system --gid 1001 kotobaflow && \
     useradd --system --uid 1001 --gid kotobaflow worker
 
 WORKDIR /app
+ENV HF_HOME=/app/models/huggingface
 
 # Install Python dependencies
 COPY requirements.txt .

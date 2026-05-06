@@ -8,10 +8,10 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel
 
-from app.tokenizer import JapaneseTokenizer
+from app.tokenizer import JapaneseTokenizer, has_kanji
 from app.dictionary import DictionaryLookup
 
 # ---------------------------------------------------------------------------
@@ -54,13 +54,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 # ---------------------------------------------------------------------------
@@ -99,13 +92,49 @@ async def analyze_text(request: AnalyzeRequest):
 
     result = tokenizer.analyze(request.text)
 
-    # Enrich tokens with dictionary data
+    # Enrich tokens with dictionary data and word grouping
     if dictionary and dictionary.available:
-        for token in result["tokens"]:
-            if token["has_kanji"]:
+        merged_tokens = []
+        skip_next = False
+        
+        for i in range(len(result["tokens"])):
+            if skip_next:
+                skip_next = False
+                continue
+                
+            token = result["tokens"][i]
+            
+            # Check for word grouping with the next token
+            if i + 1 < len(result["tokens"]):
+                next_token = result["tokens"][i+1]
+                compound_surface = token["surface"] + next_token["surface"]
+                
+                # Only attempt grouping if the compound has kanji or if they are both kana but long enough
+                if has_kanji(compound_surface) or len(compound_surface) > 2:
+                    dict_entry = dictionary.lookup(compound_surface)
+                    if dict_entry:
+                        # Group them!
+                        token["surface"] = compound_surface
+                        token["base_form"] = compound_surface
+                        token["reading"] = token["reading"] + next_token["reading"]
+                        token["reading_katakana"] = token["reading_katakana"] + next_token["reading_katakana"]
+                        token["furigana_html"] = token["furigana_html"] + next_token["furigana_html"]
+                        token["has_kanji"] = True
+                        token["dictionary"] = dict_entry
+                        merged_tokens.append(token)
+                        skip_next = True
+                        continue
+
+            if token["has_kanji"] or len(token["surface"]) > 1:
                 dict_entry = dictionary.lookup(token["base_form"])
+                if not dict_entry:
+                    dict_entry = dictionary.lookup(token["surface"])
                 if dict_entry:
                     token["dictionary"] = dict_entry
+                    
+            merged_tokens.append(token)
+            
+        result["tokens"] = merged_tokens
 
     return result
 
@@ -123,13 +152,46 @@ async def batch_analyze(request: BatchAnalyzeRequest):
     for sentence in request.sentences:
         analysis = tokenizer.analyze(sentence)
 
-        # Enrich with dictionary
+        # Enrich with dictionary and word grouping
         if dictionary and dictionary.available:
-            for token in analysis["tokens"]:
-                if token["has_kanji"]:
+            merged_tokens = []
+            skip_next = False
+            
+            for i in range(len(analysis["tokens"])):
+                if skip_next:
+                    skip_next = False
+                    continue
+                    
+                token = analysis["tokens"][i]
+                
+                if i + 1 < len(analysis["tokens"]):
+                    next_token = analysis["tokens"][i+1]
+                    compound_surface = token["surface"] + next_token["surface"]
+                    
+                    if has_kanji(compound_surface) or len(compound_surface) > 2:
+                        dict_entry = dictionary.lookup(compound_surface)
+                        if dict_entry:
+                            token["surface"] = compound_surface
+                            token["base_form"] = compound_surface
+                            token["reading"] = token["reading"] + next_token["reading"]
+                            token["reading_katakana"] = token["reading_katakana"] + next_token["reading_katakana"]
+                            token["furigana_html"] = token["furigana_html"] + next_token["furigana_html"]
+                            token["has_kanji"] = True
+                            token["dictionary"] = dict_entry
+                            merged_tokens.append(token)
+                            skip_next = True
+                            continue
+
+                if token["has_kanji"] or len(token["surface"]) > 1:
                     dict_entry = dictionary.lookup(token["base_form"])
+                    if not dict_entry:
+                        dict_entry = dictionary.lookup(token["surface"])
                     if dict_entry:
                         token["dictionary"] = dict_entry
+                        
+                merged_tokens.append(token)
+                
+            analysis["tokens"] = merged_tokens
 
         results.append(analysis)
 
