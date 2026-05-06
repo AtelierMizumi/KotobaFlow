@@ -13,20 +13,28 @@ interface UseTranscribeReturn {
   reset: () => void;
 }
 
-/** Manages the WebSocket connection to the inference-worker. */
+/** Manages the WebSocket connection to the inference-worker with auto-reconnect. */
 export function useTranscribe(): UseTranscribeReturn {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [status, setStatus] = useState<TranscribeStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const cleanupRef = useRef<(() => void) | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const attemptRef = useRef(0);
+  const maxAttempts = 3;
 
   const start = useCallback((jobId: string) => {
     // Cleanup any existing connection
-    cleanupRef.current?.();
+    if (cleanupRef.current) cleanupRef.current();
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
 
-    setSegments([]);
+    // Only reset segments on first attempt
+    if (attemptRef.current === 0) {
+      setSegments([]);
+    }
+    
     setStatus("connecting");
-    setStatusMessage("Đang kết nối...");
+    setStatusMessage(attemptRef.current > 0 ? `Đang thử kết nối lại (lần ${attemptRef.current}/${maxAttempts})...` : "Đang kết nối...");
 
     const cleanup = streamTranscription(jobId, {
       onStatus: (msg) => {
@@ -34,15 +42,30 @@ export function useTranscribe(): UseTranscribeReturn {
         setStatusMessage(msg);
       },
       onSegment: (segment) => {
-        setSegments((prev) => [...prev, segment]);
+        setSegments((prev) => {
+          // Prevent duplicates if reconnected
+          if (prev.some((s) => s.id === segment.id)) return prev;
+          return [...prev, segment];
+        });
       },
       onComplete: (total) => {
         setStatus("done");
         setStatusMessage(`Hoàn thành: ${total} câu`);
+        attemptRef.current = 0; // Reset attempts on success
       },
       onError: (msg) => {
-        setStatus("error");
-        setStatusMessage(msg);
+        console.error("[useTranscribe] WS Error:", msg);
+        if (attemptRef.current < maxAttempts) {
+          attemptRef.current++;
+          setStatus("connecting");
+          setStatusMessage(`Mất kết nối. Thử lại sau 2 giây...`);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            start(jobId);
+          }, 2000 * attemptRef.current); // Exponential backoff
+        } else {
+          setStatus("error");
+          setStatusMessage("Không thể kết nối đến máy chủ phiên âm.");
+        }
       },
     });
 
@@ -50,7 +73,9 @@ export function useTranscribe(): UseTranscribeReturn {
   }, []);
 
   const reset = useCallback(() => {
-    cleanupRef.current?.();
+    if (cleanupRef.current) cleanupRef.current();
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    attemptRef.current = 0;
     setSegments([]);
     setStatus("idle");
     setStatusMessage("");
@@ -58,7 +83,10 @@ export function useTranscribe(): UseTranscribeReturn {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => cleanupRef.current?.();
+    return () => {
+      if (cleanupRef.current) cleanupRef.current();
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    };
   }, []);
 
   return { segments, status, statusMessage, start, reset };

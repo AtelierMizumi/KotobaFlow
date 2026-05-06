@@ -1,11 +1,13 @@
 """
 KotobaFlow — Inference Worker Service
 Provides REST + WebSocket APIs for Japanese speech-to-text using Faster-Whisper.
+Now with transcript caching to avoid re-running Whisper for the same video.
 """
 
 import os
 import json
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 import httpx
@@ -20,6 +22,7 @@ from app.whisper_engine import WhisperEngine
 # ---------------------------------------------------------------------------
 MEDIA_SERVICE_URL = os.getenv("MEDIA_SERVICE_URL", "http://media-handler:8003")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://nlp-processor:8002")
+TRANSCRIPT_CACHE_DIR = Path(os.getenv("TRANSCRIPT_CACHE_DIR", "/app/media-cache"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,7 +49,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="KotobaFlow Inference Worker",
     description="Speech-to-text service using Faster-Whisper",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -58,6 +61,40 @@ app = FastAPI(
 class TranscribeRequest(BaseModel):
     job_id: str
     enrich_nlp: bool = True  # Whether to also run NLP analysis
+
+
+# ---------------------------------------------------------------------------
+# Transcript Cache Helpers
+# ---------------------------------------------------------------------------
+def _transcript_cache_path(job_id: str) -> Path:
+    """Get the cache file path for a job's transcript."""
+    return TRANSCRIPT_CACHE_DIR / f"{job_id}_transcript.json"
+
+
+def _load_cached_transcript(job_id: str) -> dict | None:
+    """Load a cached transcript if it exists."""
+    path = _transcript_cache_path(job_id)
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            logger.info(f"[{job_id}] Transcript loaded from cache")
+            return data
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"[{job_id}] Failed to load cached transcript: {e}")
+    return None
+
+
+def _save_transcript_cache(job_id: str, segments: list[dict]):
+    """Save transcript segments to cache."""
+    path = _transcript_cache_path(job_id)
+    try:
+        TRANSCRIPT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"segments": segments, "job_id": job_id}, f, ensure_ascii=False)
+        logger.info(f"[{job_id}] Transcript cached to {path}")
+    except OSError as e:
+        logger.warning(f"[{job_id}] Failed to save transcript cache: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +117,13 @@ async def transcribe(request: TranscribeRequest):
     """
     Full transcription of a media-handler job.
     Downloads audio from media-handler, runs Whisper, optionally enriches with NLP.
+    Returns cached result if available.
     """
+    # Check cache first
+    cached = _load_cached_transcript(request.job_id)
+    if cached:
+        return cached
+
     # Fetch audio from media-handler
     audio_path = await _download_audio(request.job_id)
 
@@ -91,7 +134,19 @@ async def transcribe(request: TranscribeRequest):
     if request.enrich_nlp:
         result = await _enrich_with_nlp(result)
 
+    # Cache the result
+    _save_transcript_cache(request.job_id, result.get("segments", []))
+
     return result
+
+
+@app.get("/api/transcript/{job_id}")
+async def get_cached_transcript(job_id: str):
+    """Get a cached transcript if available (no re-processing)."""
+    cached = _load_cached_transcript(job_id)
+    if cached:
+        return {"cached": True, **cached}
+    return {"cached": False, "segments": []}
 
 
 @app.websocket("/ws/transcribe")
@@ -102,6 +157,8 @@ async def ws_transcribe(websocket: WebSocket):
     Client sends: {"job_id": "abc123", "enrich_nlp": true}
     Server streams: {"type": "segment", "data": {...}} per segment
     Server ends:    {"type": "complete", "total_segments": N}
+    
+    If a cached transcript exists, streams from cache (instant).
     """
     await websocket.accept()
     logger.info("WebSocket client connected")
@@ -117,13 +174,31 @@ async def ws_transcribe(websocket: WebSocket):
             await websocket.close()
             return
 
+        # Check transcript cache first
+        cached = _load_cached_transcript(job_id)
+        if cached and cached.get("segments"):
+            await websocket.send_json({
+                "type": "status",
+                "message": "Đang tải từ cache...",
+            })
+            segments = cached["segments"]
+            for seg in segments:
+                await websocket.send_json({"type": "segment", "data": seg})
+            await websocket.send_json({
+                "type": "complete",
+                "total_segments": len(segments),
+                "cached": True,
+            })
+            return
+
         # Download audio
-        await websocket.send_json({"type": "status", "message": "Downloading audio..."})
+        await websocket.send_json({"type": "status", "message": "Đang tải audio..."})
         audio_path = await _download_audio(job_id)
 
         # Stream transcription
-        await websocket.send_json({"type": "status", "message": "Transcribing..."})
+        await websocket.send_json({"type": "status", "message": "Đang phiên âm..."})
         segment_count = 0
+        all_segments: list[dict] = []
 
         for segment in engine.transcribe_streaming(audio_path):
             # Optionally enrich each segment with NLP
@@ -134,7 +209,11 @@ async def ws_transcribe(websocket: WebSocket):
                 "type": "segment",
                 "data": segment,
             })
+            all_segments.append(segment)
             segment_count += 1
+
+        # Cache the completed transcript
+        _save_transcript_cache(job_id, all_segments)
 
         await websocket.send_json({
             "type": "complete",

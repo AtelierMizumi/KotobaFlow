@@ -21,6 +21,11 @@ export default function UrlInputForm() {
     try {
       setStatus("Đang gửi URL...");
       const job = await extractFromUrl(url.trim());
+      if (job.cached) {
+        setStatus("⚡ Đã xử lý trước đó, đang mở...");
+        router.push(`/study/${job.job_id}`);
+        return;
+      }
       setStatus("Đang tải và xử lý audio...");
       await waitForJob(job.job_id, setStatus);
       router.push(`/study/${job.job_id}`);

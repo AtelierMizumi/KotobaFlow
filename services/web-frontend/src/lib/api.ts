@@ -13,6 +13,21 @@ const WS_BASE = typeof window !== "undefined" ? `${window.location.protocol === 
 
 /** Submit a YouTube URL for audio extraction. Returns job_id. */
 export async function extractFromUrl(url: string) {
+  // First, check cache to skip waiting if possible
+  const checkRes = await fetch(`${API_BASE}/api/media/check-cache`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  
+  if (checkRes.ok) {
+    const cacheData = await checkRes.json();
+    if (cacheData.cached) {
+      return { job_id: cacheData.job_id, status: "ready", cached: true };
+    }
+  }
+
+  // If not cached, proceed with extraction
   const res = await fetch(`${API_BASE}/api/media/extract`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
