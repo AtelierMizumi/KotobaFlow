@@ -62,15 +62,41 @@ export default function TranscriptSidebar({
         alignItems: "center",
         justifyContent: "space-between",
         flexShrink: 0,
+        gap: 8,
       }}>
         <h2 style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-secondary)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
           Transcript
         </h2>
-        {segments.length > 0 && (
-          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-            {segments.length} câu
-          </span>
-        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {segments.length > 0 && (
+            <button
+              onClick={() => {
+                const text = segments.map(s => `[${formatTime(s.start)}] ${s.text}`).join('\n');
+                navigator.clipboard.writeText(text);
+                alert("Đã copy toàn bộ transcript!");
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "1rem",
+                padding: "2px 4px",
+                opacity: 0.7,
+                transition: "opacity 0.2s"
+              }}
+              title="Copy toàn bộ Transcript"
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
+            >
+              📋
+            </button>
+          )}
+          {segments.length > 0 && (
+            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+              {segments.length} câu
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Status bar */}

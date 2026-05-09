@@ -6,6 +6,8 @@ const ReactPlayer = ReactPlayerType as any;
 interface VideoPlayerProps {
   videoUrl?: string;
   jobId: string;
+  loading?: boolean;
+  error?: string | null;
 }
 
 export interface VideoPlayerHandle {
@@ -15,10 +17,11 @@ export interface VideoPlayerHandle {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ videoUrl, jobId }, ref) => {
+  ({ videoUrl, jobId, loading, error }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const playerRef = useRef<any>(null);
     const [playing, setPlaying] = useState(false);
+    const [playerError, setPlayerError] = useState(false);
 
     useImperativeHandle(ref, () => ({
       seekTo: (time: number) => {
@@ -57,7 +60,22 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           justifyContent: "center",
         }}
       >
-        {videoUrl ? (
+        {loading ? (
+          <div style={{ color: "var(--text-muted)", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div className="spinner" style={{ width: 32, height: 32 }} />
+            <span>Đang tải thông tin...</span>
+          </div>
+        ) : error || playerError ? (
+          <div style={{ color: "var(--accent-red)", textAlign: "center", padding: 20 }}>
+            <div style={{ fontSize: "2rem", marginBottom: 12 }}>⚠</div>
+            <div>{error || "Video không thể phát (có thể do bị chặn nhúng)."}</div>
+            {videoUrl && (
+              <a href={videoUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 12, color: "var(--accent-primary)", textDecoration: "underline" }}>
+                Mở video trên YouTube
+              </a>
+            )}
+          </div>
+        ) : videoUrl ? (
           <ReactPlayer
             ref={playerRef}
             url={src}
@@ -67,6 +85,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             playing={playing}
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
+            onError={() => setPlayerError(true)}
           />
         ) : (
           /* Audio-only mode: waveform placeholder */

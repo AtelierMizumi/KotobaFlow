@@ -63,6 +63,28 @@ export async function getMetadata(jobId: string) {
   return res.json();
 }
 
+/** List all processed jobs for the video library. */
+export async function listJobs(status?: string, search?: string, limit = 20, offset = 0) {
+  const params = new URLSearchParams();
+  if (status) params.append("status", status);
+  if (search) params.append("search", search);
+  params.append("limit", limit.toString());
+  params.append("offset", offset.toString());
+
+  const res = await fetch(`${API_BASE}/api/media/jobs?${params.toString()}`);
+  if (!res.ok) throw new Error(`Failed to list jobs: ${res.statusText}`);
+  return res.json();
+}
+
+/** Delete a job and its associated audio file. */
+export async function deleteJob(jobId: string) {
+  const res = await fetch(`${API_BASE}/api/media/jobs/${jobId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Failed to delete job: ${res.statusText}`);
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // NLP Processor
 // ---------------------------------------------------------------------------

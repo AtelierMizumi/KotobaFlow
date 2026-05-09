@@ -17,6 +17,8 @@ export default function StudyPage({ params }: { params: Promise<{ jobId: string 
   const videoRef = useRef<VideoPlayerHandle>(null);
   const [studyMode, setStudyMode] = useState<StudyMode>("listening");
   const [metadata, setMetadata] = useState<VideoMetadata | null>(null);
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaError, setMetaError] = useState<string | null>(null);
 
   const { segments, status, statusMessage, start } = useTranscribe();
   const { activeIndex, seekTo } = useVideoSync(segments, videoRef);
@@ -25,10 +27,26 @@ export default function StudyPage({ params }: { params: Promise<{ jobId: string 
   useEffect(() => {
     if (!jobId) return;
 
-    getMetadata(jobId)
-      .then(setMetadata)
-      .catch(() => {});
+    let retryCount = 0;
+    const fetchMeta = async () => {
+      try {
+        setMetaLoading(true);
+        setMetaError(null);
+        const data = await getMetadata(jobId);
+        setMetadata(data);
+        setMetaLoading(false);
+      } catch (err: any) {
+        if (retryCount < 3) {
+          retryCount++;
+          setTimeout(fetchMeta, 1000 * retryCount); // exponential backoff
+        } else {
+          setMetaLoading(false);
+          setMetaError("Không thể tải thông tin video. Vui lòng thử lại sau.");
+        }
+      }
+    };
 
+    fetchMeta();
     start(jobId);
   }, [jobId, start]);
 
@@ -86,6 +104,8 @@ export default function StudyPage({ params }: { params: Promise<{ jobId: string 
               ref={videoRef}
               jobId={jobId}
               videoUrl={metadata?.source === "youtube" ? metadata.original_url : undefined}
+              loading={metaLoading}
+              error={metaError}
             />
           </div>
 
