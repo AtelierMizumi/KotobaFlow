@@ -68,9 +68,9 @@ services:
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
       - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-ja}
       - WHISPER_BEAM_SIZE=${WHISPER_BEAM_SIZE:-5}
-      - WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-4}
-      - WHISPER_NUM_WORKERS=${WHISPER_NUM_WORKERS:-1}
-      - OMP_NUM_THREADS=${WHISPER_CPU_THREADS:-4}
+      - WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-8}
+      - WHISPER_NUM_WORKERS=${WHISPER_NUM_WORKERS:-2}
+      - OMP_NUM_THREADS=${WHISPER_CPU_THREADS:-8}
       - MEDIA_SERVICE_URL=http://media-handler:8003
       - NLP_SERVICE_URL=http://nlp-processor:8002
     volumes:
@@ -79,8 +79,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2048M
-          cpus: '4.0'
+          memory: 4096M
+          cpus: '8.0'
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
