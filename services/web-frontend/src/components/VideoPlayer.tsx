@@ -1,7 +1,7 @@
 "use client";
 import { useRef, forwardRef, useImperativeHandle, useState } from "react";
-import ReactPlayerType from "react-player";
-const ReactPlayer = ReactPlayerType as any;
+import dynamic from "next/dynamic";
+const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
 interface VideoPlayerProps {
   videoUrl?: string;
@@ -20,7 +20,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   ({ videoUrl, jobId, loading, error }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const playerRef = useRef<any>(null);
-    const [playing, setPlaying] = useState(false);
     const [playerError, setPlayerError] = useState(false);
 
     useImperativeHandle(ref, () => ({
@@ -79,13 +78,17 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <ReactPlayer
             ref={playerRef}
             url={src}
-            controls
+            controls={true}
             width="100%"
             height="100%"
-            playing={playing}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
             onError={() => setPlayerError(true)}
+            config={{
+              youtube: {
+                playerVars: { 
+                  origin: typeof window !== "undefined" ? window.location.origin : undefined 
+                }
+              }
+            }}
           />
         ) : (
           /* Audio-only mode: waveform placeholder */

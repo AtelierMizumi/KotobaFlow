@@ -5,12 +5,16 @@ import type { VideoPlayerHandle } from "@/components/VideoPlayer";
 
 /** Binary search to find active segment index at a given timestamp. */
 function findActiveSegment(segments: Segment[], time: number): number {
+  if (!segments || segments.length === 0 || time === undefined || isNaN(time)) return -1;
+  
   let lo = 0, hi = segments.length - 1;
   while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
+    const mid = Math.floor((lo + hi) / 2);
     const seg = segments[mid];
-    if (time < seg.start) hi = mid - 1;
-    else if (time > seg.end) lo = mid + 1;
+    
+    // Add a small buffer (e.g., 0.1s) to make subtitle matching more forgiving
+    if (time < seg.start - 0.1) hi = mid - 1;
+    else if (time > seg.end + 0.1) lo = mid + 1;
     else return mid;
   }
   return -1;
@@ -52,3 +56,4 @@ export function useVideoSync(
 
   return { activeIndex, seekTo };
 }
+

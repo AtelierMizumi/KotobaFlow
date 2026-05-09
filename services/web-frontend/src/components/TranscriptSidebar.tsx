@@ -110,7 +110,7 @@ export default function TranscriptSidebar({
       {/* Segment list */}
       <div
         ref={listRef}
-        style={{ flex: 1, overflowY: "auto", padding: "6px 8px" }}
+        style={{ flex: 1, overflowY: "auto", padding: "6px 8px", overflowAnchor: "none" }}
       >
         {segments.length === 0 && !isTranscribing && (
           <div style={{
